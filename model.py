@@ -4,9 +4,17 @@ import numpy as np
 
 class NTMCopyModel():
     def __init__(self, args, seq_length, reuse=False):
-        self.x = tf.placeholder(name='x', dtype=tf.float32, shape=[args.batch_size, seq_length, args.vector_dim])
+        """
+
+        :param args:
+        :param seq_length:
+        :param reuse:
+        """
+        self.x = tf.placeholder(name='x', dtype=tf.float32,
+                                shape=[args.batch_size, seq_length, args.vector_dim])
         self.y = self.x
         eof = np.zeros([args.batch_size, args.vector_dim + 1])
+        # batch_size rows,and each row has vector dim 0s and one 1.
         eof[:, args.vector_dim] = np.ones([args.batch_size])
         eof = tf.constant(eof, dtype=tf.float32)
         zero = tf.constant(np.zeros([args.batch_size, args.vector_dim + 1]), dtype=tf.float32)
@@ -16,6 +24,7 @@ class NTMCopyModel():
             # cannot use [single_cell] * 3 in tensorflow 1.2
             def rnn_cell(rnn_size):
                 return tf.nn.rnn_cell.BasicLSTMCell(rnn_size, reuse=reuse)
+
             cell = tf.nn.rnn_cell.MultiRNNCell([rnn_cell(args.rnn_size) for _ in range(args.rnn_num_layers)])
         elif args.model == 'NTM':
             import ntm.ntm_cell as ntm_cell
@@ -41,7 +50,7 @@ class NTMCopyModel():
 
         # self.copy_loss = tf.reduce_mean(tf.reduce_sum(tf.square(self.y - self.o), reduction_indices=[1, 2]))
         eps = 1e-8
-        self.copy_loss = -tf.reduce_mean(   # cross entropy function
+        self.copy_loss = -tf.reduce_mean(  # cross entropy function
             self.y * tf.log(self.o + eps) + (1 - self.y) * tf.log(1 - self.o + eps)
         )
         with tf.variable_scope('optimizer', reuse=reuse):
@@ -70,6 +79,7 @@ class NTMOneShotLearningModel():
         if args.model == 'LSTM':
             def rnn_cell(rnn_size):
                 return tf.nn.rnn_cell.BasicLSTMCell(rnn_size)
+
             cell = tf.nn.rnn_cell.MultiRNNCell([rnn_cell(args.rnn_size) for _ in range(args.rnn_num_layers)])
         elif args.model == 'NTM':
             import ntm.ntm_cell as ntm_cell
@@ -81,14 +91,14 @@ class NTMOneShotLearningModel():
         elif args.model == 'MANN':
             import ntm.mann_cell as mann_cell
             cell = mann_cell.MANNCell(args.rnn_size, args.memory_size, args.memory_vector_dim,
-                                    head_num=args.read_head_num)
+                                      head_num=args.read_head_num)
         elif args.model == 'MANN2':
             import ntm.mann_cell_2 as mann_cell
             cell = mann_cell.MANNCell(args.rnn_size, args.memory_size, args.memory_vector_dim,
-                                    head_num=args.read_head_num)
+                                      head_num=args.read_head_num)
 
         state = cell.zero_state(args.batch_size, tf.float32)
-        self.state_list = [state]   # For debugging
+        self.state_list = [state]  # For debugging
         self.o = []
         for t in range(args.seq_length):
             output, state = cell(tf.concat([self.x_image[:, t, :], self.x_label[:, t, :]], axis=1), state)
@@ -96,10 +106,10 @@ class NTMOneShotLearningModel():
             with tf.variable_scope("o2o", reuse=(t > 0)):
                 o2o_w = tf.get_variable('o2o_w', [output.get_shape()[1], args.output_dim],
                                         initializer=tf.random_uniform_initializer(minval=-0.1, maxval=0.1))
-                                        # initializer=tf.random_normal_initializer(mean=0.0, stddev=0.1))
+                # initializer=tf.random_normal_initializer(mean=0.0, stddev=0.1))
                 o2o_b = tf.get_variable('o2o_b', [args.output_dim],
                                         initializer=tf.random_uniform_initializer(minval=-0.1, maxval=0.1))
-                                        # initializer=tf.random_normal_initializer(mean=0.0, stddev=0.1))
+                # initializer=tf.random_normal_initializer(mean=0.0, stddev=0.1))
                 output = tf.nn.xw_plus_b(output, o2o_w, o2o_b)
             if args.label_type == 'one_hot':
                 output = tf.nn.softmax(output, dim=1)

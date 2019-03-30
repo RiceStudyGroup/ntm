@@ -43,6 +43,7 @@ def main():
 def train(args):
     model = NTMOneShotLearningModel(args)
     data_loader = OmniglotDataLoader(
+        data_dir="/Users/xavier.qiu/Documents/ricecourse/comp590Research/data/omniglot/images_background/",
         image_size=(args.image_width, args.image_height),
         n_train_classses=args.n_train_classes,
         n_test_classes=args.n_test_classes

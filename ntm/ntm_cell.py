@@ -1,6 +1,7 @@
 import tensorflow as tf
 import numpy as np
 
+
 class NTMCell():
     def __init__(self, rnn_size, memory_size, memory_vector_dim, read_head_num, write_head_num,
                  addressing_mode='content_and_loaction', shift_range=1, reuse=False, output_dim=None):
@@ -17,9 +18,9 @@ class NTMCell():
         self.shift_range = shift_range
 
     def __call__(self, x, prev_state):
-        prev_read_vector_list = prev_state['read_vector_list']      # read vector in Sec 3.1 (the content that is
-                                                                    # read out, length = memory_vector_dim)
-        prev_controller_state = prev_state['controller_state']      # state of controller (LSTM hidden state)
+        prev_read_vector_list = prev_state['read_vector_list']  # read vector in Sec 3.1 (the content that is
+        # read out, length = memory_vector_dim)
+        prev_controller_state = prev_state['controller_state']  # state of controller (LSTM hidden state)
 
         # x + prev_read_vector -> controller (RNN) -> controller_output
         controller_input = tf.concat([x] + prev_read_vector_list, axis=1)
@@ -53,7 +54,6 @@ class NTMCell():
         w_list = []
         p_list = []
         for i, head_parameter in enumerate(head_parameter_list):
-
             # Some functions to constrain the result in specific range
             # exp(x)                -> x > 0
             # sigmoid(x)            -> x \in (0, 1)
@@ -61,14 +61,14 @@ class NTMCell():
             # log(exp(x) + 1) + 1   -> x > 1
 
             k = tf.tanh(head_parameter[:, 0:self.memory_vector_dim])
-            beta = tf.sigmoid(head_parameter[:, self.memory_vector_dim]) * 10        # do not use exp, it will explode!
+            beta = tf.sigmoid(head_parameter[:, self.memory_vector_dim]) * 10  # do not use exp, it will explode!
             g = tf.sigmoid(head_parameter[:, self.memory_vector_dim + 1])
             s = tf.nn.softmax(
                 head_parameter[:, self.memory_vector_dim + 2:self.memory_vector_dim + 2 + (self.shift_range * 2 + 1)]
             )
             gamma = tf.log(tf.exp(head_parameter[:, -1]) + 1) + 1
             with tf.variable_scope('addressing_head_%d' % i):
-                w = self.addressing(k, beta, g, s, gamma, prev_M, prev_w_list[i])     # Figure 2
+                w = self.addressing(k, beta, g, s, gamma, prev_M, prev_w_list[i])  # Figure 2
             w_list.append(w)
             p_list.append({'k': k, 'beta': beta, 'g': g, 's': s, 'gamma': gamma})
 
@@ -125,20 +125,20 @@ class NTMCell():
         k_norm = tf.sqrt(tf.reduce_sum(tf.square(k), axis=1, keep_dims=True))
         M_norm = tf.sqrt(tf.reduce_sum(tf.square(prev_M), axis=2, keep_dims=True))
         norm_product = M_norm * k_norm
-        K = tf.squeeze(inner_product / (norm_product + 1e-8))                   # eq (6)
+        K = tf.squeeze(inner_product / (norm_product + 1e-8))  # eq (6)
 
         # Calculating w^c
 
         K_amplified = tf.exp(tf.expand_dims(beta, axis=1) * K)
         w_c = K_amplified / tf.reduce_sum(K_amplified, axis=1, keep_dims=True)  # eq (5)
 
-        if self.addressing_mode == 'content':                                   # Only focus on content
+        if self.addressing_mode == 'content':  # Only focus on content
             return w_c
 
         # Sec 3.3.2 Focusing by Location
 
         g = tf.expand_dims(g, axis=1)
-        w_g = g * w_c + (1 - g) * prev_w                                        # eq (7)
+        w_g = g * w_c + (1 - g) * prev_w  # eq (7)
 
         s = tf.concat([s[:, :self.shift_range + 1],
                        tf.zeros([s.get_shape()[0], self.memory_size - (self.shift_range * 2 + 1)]),
@@ -148,13 +148,21 @@ class NTMCell():
             [t[:, self.memory_size - i - 1:self.memory_size * 2 - i - 1] for i in range(self.memory_size)],
             axis=1
         )
-        w_ = tf.reduce_sum(tf.expand_dims(w_g, axis=1) * s_matrix, axis=2)      # eq (8)
+        w_ = tf.reduce_sum(tf.expand_dims(w_g, axis=1) * s_matrix, axis=2)  # eq (8)
         w_sharpen = tf.pow(w_, tf.expand_dims(gamma, axis=1))
-        w = w_sharpen / tf.reduce_sum(w_sharpen, axis=1, keep_dims=True)        # eq (9)
+        w = w_sharpen / tf.reduce_sum(w_sharpen, axis=1, keep_dims=True)  # eq (9)
 
         return w
 
     def zero_state(self, batch_size, dtype):
+        """
+        state = cell.zero_state(args.batch_size, tf.float32)
+        the 27 line in model.py used this method.
+        :param batch_size:
+        :param dtype:
+        :return:
+        """
+
         def expand(x, dim, N):
             return tf.concat([tf.expand_dims(x, dim) for _ in range(N)], axis=dim)
 
@@ -167,19 +175,31 @@ class NTMCell():
                 #            for _ in range(self.read_head_num + self.write_head_num)],
                 # 'M': tf.zeros([batch_size, self.memory_size, self.memory_vector_dim])
                 'controller_state': expand(tf.tanh(tf.get_variable('init_state', self.rnn_size,
-                                            initializer=tf.random_normal_initializer(mean=0.0, stddev=0.5))),
-                                  dim=0, N=batch_size),
+                                                                   initializer=tf.random_normal_initializer(mean=0.0,
+                                                                                                            stddev=0.5))),
+                                           dim=0, N=batch_size),
                 'read_vector_list': [expand(tf.nn.softmax(tf.get_variable('init_r_%d' % i, [self.memory_vector_dim],
-                                            initializer=tf.random_normal_initializer(mean=0.0, stddev=0.5))),
-                                  dim=0, N=batch_size)
-                           for i in range(self.read_head_num)],
+                                                                          initializer=tf.random_normal_initializer(
+                                                                              mean=0.0, stddev=0.5))),
+                                            dim=0, N=batch_size)
+                                     for i in range(self.read_head_num)],
                 'w_list': [expand(tf.nn.softmax(tf.get_variable('init_w_%d' % i, [self.memory_size],
-                                            initializer=tf.random_normal_initializer(mean=0.0, stddev=0.5))),
+                                                                initializer=tf.random_normal_initializer(mean=0.0,
+                                                                                                         stddev=0.5))),
                                   dim=0, N=batch_size) if self.addressing_mode == 'content_and_loaction'
                            else tf.zeros([batch_size, self.memory_size])
                            for i in range(self.read_head_num + self.write_head_num)],
                 'M': expand(tf.tanh(tf.get_variable('init_M', [self.memory_size, self.memory_vector_dim],
-                                            initializer=tf.random_normal_initializer(mean=0.0, stddev=0.5))),
-                                  dim=0, N=batch_size)
+                                                    initializer=tf.random_normal_initializer(mean=0.0, stddev=0.5))),
+                            dim=0, N=batch_size)
             }
+
+            verbose = False
+            if verbose:
+
+                for key in state:
+                    if isinstance(state[key], list):
+                        print(state[key][0].get_shape().as_list())
+                    else:
+                        print(state[key].get_shape().as_list())
             return state
